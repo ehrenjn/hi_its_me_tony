@@ -14,6 +14,9 @@ need to:
 look into:
 	TURNS OUT TIME SEQUENCE SIZE CAN ONLY DIFFER BATCH TO BATCH SO I HAVE TO MAKE BATCHES OF MESSAGES THAT HAVE THE SAME RESPONSE LENGTH
 		ALSO FIX BATCH GENERATION SO THAT THE LAST BATCHES FOR EACH CHANNEL ARE SMALLER BUT ACTUALLY EXIST
+		SHOULD I BE ABLE TO GENERATE A TIME SERIES FROM THE COMBINED MESSAGE OBJECT? OR SHOULD I JUST DO A NESTED FOR LOOP?
+			maybe store a numpy array in ProcessedMessage that's the correct size and I just need to edit it a bit each time I gen a time series?
+				and then it's better to gen time series from ProcessedMessage because I want to hide that implementation!
 	should turn into a pip env so I can run it on other machines easier (dockerizing is going a bit overboard) 
 	should have an ExportedModel object or something that you export at the end that you can import in tony spark that just spits out a message given 3 messages
 		would be useful so that you dont have to worry about char conversion and stuff when you want to use the model in tony
@@ -53,25 +56,37 @@ class CharConverter:
 		self.get_num = {char: num for num, char in self.get_char}
 
 
-class ProcessedMessage:
-	"A more useful representation of a message dict"
+class TimeSeriesMessage:
+	"Represents a message as arrays of input and output time series"
 
-	def __init__(self, message, char_conv):
-		content_list = [char_conv.get_num[char] for char in message['content']]
-		self.content = numpy.array(content_list) #store in array to use (slightly) less memory
-		self.timestamp = float(message['created_at'])
-		self.channel = message['channel']['id']
-		self.author = message['author']['id']
+	def __init__(self, response, previous_messages, char_conv):
+		content_list = [[char_conv.get_num[char]] for char in message['content']] #each char is in it's own list because time series output must be 2D
+		self._time_series_output = numpy.array(content_list) #store in array to use (slightly) less memory
+		self._timestamp = float(message['created_at'])
+		self._author = message['author']['id']
+	
+	def _make_base_input(self):
+		base_input = numpy.empty(MODEL_INPUT_SIZE)
 
-def group_messages_by_channel(messages):
-	messages_by_channel = dict()
-	for msg in short_messages:
-		chan_id = msg.channel
-		if chan_id not in messages_by_channel:
-			messages_by_channel[chan_id] = []
-		messages_by_channel[chan_id].append(msg)
-	return messages_by_channel
+	def __len__(self):
+		return len(self._time_series_output)
+	
+	def time_series(self):
+		"creates and returns a 2 2D numpy arrays of each time series input and output"
+		for SOMETHING #generating time series instead of saving it in the class because holding too many time series at once could use too much memory
+		pass
 
+
+def group_by(items, key_func):
+	grouped_items = dict()
+	for obj in items:
+		key = key_func(obj)
+		if key not in grouped_items:
+			grouped_items[key] = []
+		grouped_items[key].append(obj)
+	return grouped_items
+
+'''
 def preprocess_messages(messages, char_conv):
 	"remove long messages, turn all message dicts into ProcessedMessages, group by channel, sort each channel by time posted"
 	short_messages = (m for m in messages if len(m['content']) < MAX_MSG_LENGTH) #dont want massive messages to limit dimensionality 
@@ -80,7 +95,25 @@ def preprocess_messages(messages, char_conv):
     get_timestamp = lambda msg: float(msg['created_at'])
 	messages_by_channel = list(sorted(chan, key = get_timestamp) for chan in messages_by_channel) #sort each messages by time
 	return messages_by_channel
+'''
 
+def preprocess_messages(messages, char_conv):
+	"remove long messages, turn all message dicts into ProcessedMessages, group by channel, sort each channel by time posted"
+	
+	short_messages = (m for m in messages if len(m['content']) < MAX_MSG_LENGTH) #dont want massive messages to limit dimensionality 
+	messages_by_channel = group_by(short_messages, lambda msg: msg['channel']['id'])
+
+	get_timestamp = lambda msg: float(msg['created_at'])
+	messages_by_channel = list(sorted(chan, key = get_timestamp) for chan in messages_by_channel) #sort each messages by time
+	
+	processed_messages = []
+	for channel in messages_by_channel:
+		responses_only = channel[NUM_INPUT_MSGS:] #responses don't start at 0 because I want to the bot to take some messages as input to predict the next 
+ 		for index, response in enumerate(responses_only, NUM_INPUT_MSGS): 
+			msgs = channel[index - 3: index] #last 3 messages before response
+			processed_messages.append(TimeSeriesMessage(response, msgs, char_conv))
+
+	return processed_messages
 
 def normalize_time_delta(delta):
 	'''
