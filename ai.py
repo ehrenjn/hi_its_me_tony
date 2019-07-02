@@ -1,25 +1,10 @@
 '''
-need to:
-	filter out messages longer than 150 chars
-		0 fill messages that are < 150 chars
-		response should also be (zero filled) 150 chars
-	group by channels
-	order by time posted
-	convert messages to ints
-	either:
-		don't train on 4 messages in which the 4th is made by the same person, or
-		add in an input for each message that's 1 if the message was "your's", and 0 otherwise
-			"you" are the person who typed the 4th message
-	have another input for each message that tells you how long ago the message was posted
-look into:
-	TURNS OUT TIME SEQUENCE SIZE CAN ONLY DIFFER BATCH TO BATCH SO I HAVE TO MAKE BATCHES OF MESSAGES THAT HAVE THE SAME RESPONSE LENGTH
-		ALSO FIX BATCH GENERATION SO THAT THE LAST BATCHES FOR EACH CHANNEL ARE SMALLER BUT ACTUALLY EXIST
-		SHOULD I BE ABLE TO GENERATE A TIME SERIES FROM THE COMBINED MESSAGE OBJECT? OR SHOULD I JUST DO A NESTED FOR LOOP?
-			maybe store a numpy array in ProcessedMessage that's the correct size and I just need to edit it a bit each time I gen a time series?
-				and then it's better to gen time series from ProcessedMessage because I want to hide that implementation!
-	should turn into a pip env so I can run it on other machines easier (dockerizing is going a bit overboard) 
-	should have an ExportedModel object or something that you export at the end that you can import in tony spark that just spits out a message given 3 messages
-		would be useful so that you dont have to worry about char conversion and stuff when you want to use the model in tony
+MAKE IT SAVE VERSIONS OF THE MODEL PERIODICALLY AS IT TRAINS
+LOOK INTO WHAT ELSE YOU CAN PASS TO fit_generator 
+TEST SOME OF YOUR FUNCS INDIVIDUALLY (do some sanity checks)
+SEE IF YOU CAN MAKE IT SAVE A VERSION OF THE MODEL THAT CAN BE USED WAY MORE EASILY
+	(like how I wanted to have an object that I can just paste into tony and not have to worry about any data science stuff)
+	might have to just end up making a module that uses the exported net file and then you can call the module
 '''
 
 import json
