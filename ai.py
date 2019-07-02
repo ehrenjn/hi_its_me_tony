@@ -29,7 +29,6 @@ from keras.models import Sequential
 from keras.layers import Dense, Dropout, LSTM, TimeDistributed
 from keras.callbacks import ModelCheckpoint
 from keras.utils import Sequence
-import itertools
 
 #technique/some copy & pasting from https://machinelearningmastery.com/text-generation-lstm-recurrent-neural-networks-python-keras/
 
@@ -38,11 +37,25 @@ MAX_MSG_LENGTH = 150
 NUM_INPUT_MSGS = 3 
 MODEL_INPUT_SIZE = MAX_MSG_LENGTH * (NUM_INPUT_MSGS + 1) + (2 * NUM_INPUT_MSGS) #input is all the chars from the input message plus the response, and 2 extra parameters per input message for the time and the author
 
+BATCH_SIZE = 64
+NEURONS_PER_HIDDEN_LAYER = 256
+
 
 def get_messages():
     with open('parsed_all_messages.json', 'r') as parsed_msg_file:
         raw = parsed_msg_file.read()
     return json.loads(raw)
+
+
+def group_by(items, key_func):
+	"itertools.groupby is scary because it can only be iterated over once and I don't need to be super efficient for just preprocessing"
+	grouped_items = dict()
+	for obj in items:
+		key = key_func(obj)
+		if key not in grouped_items:
+			grouped_items[key] = []
+		grouped_items[key].append(obj)
+	return grouped_items
 
 
 class CharConverter:
@@ -56,65 +69,6 @@ class CharConverter:
 		self.get_num = {char: num for num, char in self.get_char}
 
 
-class TimeSeriesMessage:
-	"Represents a message as arrays of input and output time series"
-
-	def __init__(self, response, previous_messages, char_conv):
-		content_list = [[char_conv.get_num[char]] for char in message['content']] #each char is in it's own list because time series output must be 2D
-		self._time_series_output = numpy.array(content_list) #store in array to use (slightly) less memory
-		self._timestamp = float(message['created_at'])
-		self._author = message['author']['id']
-	
-	def _make_base_input(self):
-		base_input = numpy.empty(MODEL_INPUT_SIZE)
-
-	def __len__(self):
-		return len(self._time_series_output)
-	
-	def time_series(self):
-		"creates and returns a 2 2D numpy arrays of each time series input and output"
-		for SOMETHING #generating time series instead of saving it in the class because holding too many time series at once could use too much memory
-		pass
-
-
-def group_by(items, key_func):
-	grouped_items = dict()
-	for obj in items:
-		key = key_func(obj)
-		if key not in grouped_items:
-			grouped_items[key] = []
-		grouped_items[key].append(obj)
-	return grouped_items
-
-'''
-def preprocess_messages(messages, char_conv):
-	"remove long messages, turn all message dicts into ProcessedMessages, group by channel, sort each channel by time posted"
-	short_messages = (m for m in messages if len(m['content']) < MAX_MSG_LENGTH) #dont want massive messages to limit dimensionality 
-	processed_messages = (ProcessedMessage(m, char_conv) for m in messages)
-	messages_by_channel = group_messages_by_channel(short_messages)
-    get_timestamp = lambda msg: float(msg['created_at'])
-	messages_by_channel = list(sorted(chan, key = get_timestamp) for chan in messages_by_channel) #sort each messages by time
-	return messages_by_channel
-'''
-
-def preprocess_messages(messages, char_conv):
-	"remove long messages, turn all message dicts into ProcessedMessages, group by channel, sort each channel by time posted"
-	
-	short_messages = (m for m in messages if len(m['content']) < MAX_MSG_LENGTH) #dont want massive messages to limit dimensionality 
-	messages_by_channel = group_by(short_messages, lambda msg: msg['channel']['id'])
-
-	get_timestamp = lambda msg: float(msg['created_at'])
-	messages_by_channel = list(sorted(chan, key = get_timestamp) for chan in messages_by_channel) #sort each messages by time
-	
-	processed_messages = []
-	for channel in messages_by_channel:
-		responses_only = channel[NUM_INPUT_MSGS:] #responses don't start at 0 because I want to the bot to take some messages as input to predict the next 
- 		for index, response in enumerate(responses_only, NUM_INPUT_MSGS): 
-			msgs = channel[index - 3: index] #last 3 messages before response
-			processed_messages.append(TimeSeriesMessage(response, msgs, char_conv))
-
-	return processed_messages
-
 def normalize_time_delta(delta):
 	'''
 	converts seconds since previous message sent to a more meaningful guess of how much I think 
@@ -127,47 +81,96 @@ def normalize_time_delta(delta):
 		) + 1
 	) / 2
 
+
+class TimeSeriesMessage:
+	"Represents a message as arrays of input and output time series"
+
+	def __init__(self, response, previous_messages, char_conv):
+		content_list = [[char_conv.get_num[char]] for char in response['content']] #each char is in it's own list because time series output must be 2D
+		self._time_series_output = numpy.array(content_list) #store in array to use (slightly) less memory
+		self._base_input = self._make_base_input(previous_messages, response, char_conv)
+	
+	def _make_base_input(self, previous_messages, response, char_conv):
+		base_input = numpy.zeros(MODEL_INPUT_SIZE - MAX_MSG_LENGTH) #base input is all inputs minus the response content
+		response_timestamp = float(response['created_at'])
+		response_author = response['author']['id']
+
+		ary_index_offset = 0 #current offset in the base_input array
+		offset_per_msg = MAX_MSG_LENGTH + 2 #+2 because theres 2 inputs per message other than the content of the message
+		author_offset = MAX_MSG_LENGTH 
+		time_offset = MAX_MSG_LENGTH + 1
+
+		for msg in previous_messages:
+			for char_num, char in enumerate(msg):
+				base_input[ary_index_offset + char_num] = char_conv.get_num(char)
+			same_user = float(response_author == msg['author']['id']) #whether the same user wrote msg and the response
+			base_input[ary_index_offset + author_offset] = same_user
+			time_delta = response_timestamp - float(msg['created_at']) #time between msg and response
+			base_input[ary_index_offset + time_offset] = normalize_time_delta(time_delta)
+			ary_index_offset += offset_per_msg
+		return base_input
+
+	def __len__(self):
+		return len(self._time_series_output)
+	
+	def fill_time_series(self, time_series_input, time_series_output):
+		"fills 2 2D numpy arrays with time series input and output"
+		response_input_offset = MODEL_INPUT_SIZE - MAX_MSG_LENGTH #how far into time_series_input the response begins
+		for time_step in range(len(self)): #generating time series instead of saving it in the class because holding too many time series at once could use too much memory
+			time_series_input[time_step, :response_input_offset] = self._base_input
+			for index in range(time_step):
+				time_series_input[index + response_input_offset] = self._time_series_output[index]
+		time_series_output[:] = self._time_series_output #just copy the whole output since we dont need to change anything
+
+
+def preprocess_messages(messages, char_conv):
+	"remove long messages, turn all message dicts into ProcessedMessages"
+	
+	short_messages = (m for m in messages if len(m['content']) < MAX_MSG_LENGTH) #dont want massive messages to limit dimensionality 
+	messages_by_channel = group_by(short_messages, lambda msg: msg['channel']['id']) #have to group by channel so I can find out which messages go with which responses
+
+	get_timestamp = lambda msg: float(msg['created_at'])
+	messages_by_channel = list(sorted(chan, key = get_timestamp) for chan in messages_by_channel) #sort each messages by time
+	
+	processed_messages = []
+	for channel in messages_by_channel:
+		responses_only = channel[NUM_INPUT_MSGS:] #responses don't start at 0 because I want to the bot to take some messages as input to predict the next 
+		for index, response in enumerate(responses_only, NUM_INPUT_MSGS): 
+			msgs = channel[index - 3: index] #last 3 messages before response
+			processed_messages.append(TimeSeriesMessage(response, msgs, char_conv))
+
+	return processed_messages
+
+
 class BatchGenerator(Sequence):
-	def __init__(self, messages_by_channel, batch_size, output_size):
-		self._message_batches = self._group_messages_by_batch(messages_by_channel, batch_size)
+	def __init__(self, time_series_messages, batch_size):
+		self._message_batches = self._group_messages_by_batch(time_series_messages, batch_size)
 		self._batch_size = batch_size
 
-	def _group_messages_by_batch(self, messages_by_channel, batch_size):
+	def _group_messages_by_batch(self, time_series_messages, batch_size):
 		"group messages by batch so that I can implement __getitem__ and __len__ more efficiently/easily"
-		message_batches = []
-		messages_per_batch = batch_size + NUM_INPUT_MSGS #need 3 additional messages in every batch since we train on a response plus three previous messages
-		for channel in messages_by_channel:
-			if len(channel) >= messages_per_batch: #ignore channels that are too small for a batch
-				for response_num in range(NUM_INPUT_MSGS, len(channel), batch_size): #we'll lose some of the messages at the end of the channel but oh well... the only alternative is to have batches span channels and that gets confusing
-					first_msg = response_num - NUM_INPUT_MSGS
-					last_msg = response_num + batch_size
-					message_batches.append(channel[first_msg: last_msg])
-		return message_batches
+		grouped_messages = group_by(time_series_messages, len) #group by length of message response since time series length must be the same from batch to batch
+		all_batches = []
+		for group in grouped_messages.values():
+			batch = [group[i: i + batch_size] for i in range(0, len(group), batch_size)] #split each group into batch sized smaller groups
+			all_batches.extend(batch)
+		return all_batches
 	
 	def __getitem__(self, index):
-		messages = self._message_batches[index]
-		batch_size = len(messages) - NUM_INPUT_MSGS #not all batches are the same size
-		batch_input = numpy.empty((batch_size, FRICK, MODEL_INPUT_SIZE))
-		batch_output = #UHHHHHHHhhhhhhHHHHHHHHHHHHHH
-		for index, response in enumerate(messages, start = NUM_INPUT_MSGS):
-			pass
-		return batch_input, batch_output
+		#run .time_series() on every member of self._message_batches[index] and then somehow get it in a 3D array
+		batch = self._message_batches[index]
+		response_lengths = len(batch[0])  #len(batch[n]) is always the same size since we've grouped by response length
+		input_tensor = numpy.empty((len(batch), response_lengths,  MODEL_INPUT_SIZE))
+		output_tensor = numpy.empty((len(batch), response_lengths, 1)) #only a single output
+		for msg_num, msg in enumerate(batch): #fill tensors with time series data
+			msg.fill_time_series(input_tensor[msg_num], output_tensor[msg_num])
+		return input_tensor, output_tensor
 
 	def __len__(self):
 		return len(self._message_batches)
 
-def make_training_data(messages_by_channel, char_conv):
-    for channel in messages_by_channel:
-		for index, response in enumerate(channel, 3): #start at msg 3 because I want to the bot to take 3 messages as input to predict the next 
-			msgs = channel[index - 3: index] #last 3 messages before response
-			converted_msgs = []
-			for m in msgs: #create the input
-				time_before_response = normalize_time_delta(response.timestamp - m.timestamp)
-				voice = int(m.author == response.author) #1 if this is sent by the same person as the response, 0 otherwise
-				converted_msgs = itertools.chain(converted_msgs, m.content, padding, [time_before_response], [voice])
 
-
-def create_model(num_inputs, num_outputs, neurons_per_hidden_layer):
+def create_model(num_inputs, neurons_per_hidden_layer):
 	"basically copied and pasted from https://machinelearningmastery.com/text-generation-lstm-recurrent-neural-networks-python-keras/"
 	model = Sequential()
 	model.add(LSTM(neurons_per_hidden_layer, input_shape=(None, num_inputs), return_sequences=True))
@@ -175,8 +178,8 @@ def create_model(num_inputs, num_outputs, neurons_per_hidden_layer):
 	model.add(LSTM(neurons_per_hidden_layer))
 	model.add(Dropout(0.2)) 
 	model.add(TimeDistributed( #so model outputs sequences instead of just individual chars
-		Dense(num_outputs, activation='softmax') #output probability for each char
-	)
+		Dense(1, activation='softmax') #output probability for each char
+	))
 	model.compile(loss='categorical_crossentropy', optimizer='adam') #crossentropy because softmax
 	return model
 
@@ -185,7 +188,7 @@ def create_model(num_inputs, num_outputs, neurons_per_hidden_layer):
 if __name__ == "__main__":
 	messages = get_messages()
 	chars = CharConverter(messages)
-	messages_by_channel = preprocess_messages(messages, chars)
-	batch_generator = BatchGenerator(messages_by_channel)
-	model = create_model()
-	model.fit_generator() #use a generator because I have way too much data to stuff into an array
+	time_series_messages = preprocess_messages(messages, chars)
+	batch_generator = BatchGenerator(time_series_messages, BATCH_SIZE)
+	model = create_model(MODEL_INPUT_SIZE, NEURONS_PER_HIDDEN_LAYER)
+	model.fit_generator(batch_generator) #use a generator because I have way too much data to stuff into an array
