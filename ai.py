@@ -12,8 +12,8 @@ need to:
 			"you" are the person who typed the 4th message
 	have another input for each message that tells you how long ago the message was posted
 look into:
-	ALWAYS TRAINING 150 TIMES PER MESSAGES IS PRETTY INEFFICIENT SINCE MOST MESSAGES END WAY BEFORE THE 150TH CHARACTER, HOW DO I FIX THAT WITHOUT IT FORGETTING HOW TO END MESSAGES?
-		seems pretty googlable although it might send you down a rabbithole for a completely different type of rnn or something
+	TURNS OUT TIME SEQUENCE SIZE CAN ONLY DIFFER BATCH TO BATCH SO I HAVE TO MAKE BATCHES OF MESSAGES THAT HAVE THE SAME RESPONSE LENGTH
+		ALSO FIX BATCH GENERATION SO THAT THE LAST BATCHES FOR EACH CHANNEL ARE SMALLER BUT ACTUALLY EXIST
 	should turn into a pip env so I can run it on other machines easier (dockerizing is going a bit overboard) 
 	should have an ExportedModel object or something that you export at the end that you can import in tony spark that just spits out a message given 3 messages
 		would be useful so that you dont have to worry about char conversion and stuff when you want to use the model in tony
@@ -23,12 +23,17 @@ import json
 import sys
 import numpy
 from keras.models import Sequential
-from keras.layers import Dense, Dropout, LSTM
+from keras.layers import Dense, Dropout, LSTM, TimeDistributed
 from keras.callbacks import ModelCheckpoint
 from keras.utils import Sequence
 import itertools
 
 #technique/some copy & pasting from https://machinelearningmastery.com/text-generation-lstm-recurrent-neural-networks-python-keras/
+
+
+MAX_MSG_LENGTH = 150
+NUM_INPUT_MSGS = 3 
+MODEL_INPUT_SIZE = MAX_MSG_LENGTH * (NUM_INPUT_MSGS + 1) + (2 * NUM_INPUT_MSGS) #input is all the chars from the input message plus the response, and 2 extra parameters per input message for the time and the author
 
 
 def get_messages():
@@ -48,15 +53,12 @@ class CharConverter:
 		self.get_num = {char: num for num, char in self.get_char}
 
 
-MAX_MSG_LENGTH = 150
-
 class ProcessedMessage:
 	"A more useful representation of a message dict"
 
 	def __init__(self, message, char_conv):
-		self.content = numpy.zeros(MAX_MSG_LENGTH)
-		for index, char in enumerate(message['content']):
-			self.content[index] = char_conv.get_num[char]
+		content_list = [char_conv.get_num[char] for char in message['content']]
+		self.content = numpy.array(content_list) #store in array to use (slightly) less memory
 		self.timestamp = float(message['created_at'])
 		self.channel = message['channel']['id']
 		self.author = message['author']['id']
@@ -93,11 +95,33 @@ def normalize_time_delta(delta):
 	) / 2
 
 class BatchGenerator(Sequence):
-	def __init__(self, messages_by_channel):
-		self._channels = messages_by_channel
+	def __init__(self, messages_by_channel, batch_size, output_size):
+		self._message_batches = self._group_messages_by_batch(messages_by_channel, batch_size)
+		self._batch_size = batch_size
+
+	def _group_messages_by_batch(self, messages_by_channel, batch_size):
+		"group messages by batch so that I can implement __getitem__ and __len__ more efficiently/easily"
+		message_batches = []
+		messages_per_batch = batch_size + NUM_INPUT_MSGS #need 3 additional messages in every batch since we train on a response plus three previous messages
+		for channel in messages_by_channel:
+			if len(channel) >= messages_per_batch: #ignore channels that are too small for a batch
+				for response_num in range(NUM_INPUT_MSGS, len(channel), batch_size): #we'll lose some of the messages at the end of the channel but oh well... the only alternative is to have batches span channels and that gets confusing
+					first_msg = response_num - NUM_INPUT_MSGS
+					last_msg = response_num + batch_size
+					message_batches.append(channel[first_msg: last_msg])
+		return message_batches
 	
 	def __getitem__(self, index):
-		pass
+		messages = self._message_batches[index]
+		batch_size = len(messages) - NUM_INPUT_MSGS #not all batches are the same size
+		batch_input = numpy.empty((batch_size, FRICK, MODEL_INPUT_SIZE))
+		batch_output = #UHHHHHHHhhhhhhHHHHHHHHHHHHHH
+		for index, response in enumerate(messages, start = NUM_INPUT_MSGS):
+			pass
+		return batch_input, batch_output
+
+	def __len__(self):
+		return len(self._message_batches)
 
 def make_training_data(messages_by_channel, char_conv):
     for channel in messages_by_channel:
@@ -113,11 +137,13 @@ def make_training_data(messages_by_channel, char_conv):
 def create_model(num_inputs, num_outputs, neurons_per_hidden_layer):
 	"basically copied and pasted from https://machinelearningmastery.com/text-generation-lstm-recurrent-neural-networks-python-keras/"
 	model = Sequential()
-	model.add(LSTM(neurons_per_hidden_layer, input_shape=(X.shape[1], X.shape[2]), return_sequences=True))
+	model.add(LSTM(neurons_per_hidden_layer, input_shape=(None, num_inputs), return_sequences=True))
 	model.add(Dropout(0.2)) #try to not memorize the data
 	model.add(LSTM(neurons_per_hidden_layer))
 	model.add(Dropout(0.2)) 
-	model.add(Dense(num_outputs, activation='softmax')) #output probability for each char
+	model.add(TimeDistributed( #so model outputs sequences instead of just individual chars
+		Dense(num_outputs, activation='softmax') #output probability for each char
+	)
 	model.compile(loss='categorical_crossentropy', optimizer='adam') #crossentropy because softmax
 	return model
 
