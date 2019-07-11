@@ -14,7 +14,7 @@ import json
 import sys
 import numpy
 from keras.models import Sequential
-from keras.layers import Dense, Dropout, LSTM, TimeDistributed
+from keras.layers import Dense, Dropout, LSTM, Flatten
 from keras.callbacks import ModelCheckpoint
 from keras.utils import Sequence
 
@@ -51,11 +51,12 @@ class CharConverter:
 
 	def __init__(self, messages):
 		all_chars = {char for msg in messages for char in msg['content']}
-		self.get_index = {index: char for index, char in enumerate(all_chars, start = 1)} #used to one hot encode
-		self.get_index[0] = '' #used for padding
-		num_chars = len(all_chars) #used to normalize index to be between 0 and 1 
-		self.get_char = {index/num_chars: char for index, char in self.get_index.items()}
-		self.get_num = {char: num for num, char in self.get_char.items()}
+		self.get_index = {char: index for index, char in enumerate(all_chars, start = 1)} #used to one hot encode
+		self.get_index[''] = 0 #used for padding
+		self.num_chars = len(self.get_index) 
+		self.get_char = {index: char for char, index in self.get_index.items()}
+		divider = self.num_chars - 1 #to normalize index to be between 0 and 1 (-1 because if theres 10 chars then the max index is only 9 but we want index 9 to become num 1.0)
+		self.get_num = {char: index/divider for char, index in self.get_index.items()}
 
 
 def normalize_time_delta(delta):
@@ -77,13 +78,15 @@ class TimeSeriesMessage:
 	"Represents a message as arrays of input and output time series"
 
 	def __init__(self, response, previous_messages, char_conv):
-		self._time_series_output = self._make_output(response, char_conv)
+		self._base_index_output, self._base_num_output = self._make_base_outputs(response, char_conv)
 		self._base_input = self._make_base_input(previous_messages, response, char_conv)
+		self._char_conv = char_conv
 	
-	def _make_output(self, response, char_conv):
-		content_list = [[char_conv.get_num[char]] for char in response['content']] #each char is in it's own list because time series output must be 2D
-		content_list.append([0]) #append an extra null on the end so that network can learn where the ends of sentences are
-		return numpy.array(content_list) #store in array to use less memory
+	def _make_base_outputs(self, response, char_conv):
+		content_index = [char_conv.get_index[char] for char in response['content']] #use char index because I'm gonna one hot encode the output
+		content_index.append(0) #append an extra null on the end so that network can (hopefully) learn where the ends of sentences are
+		content_num = [index/char_conv.num_chars for index in content_index]
+		return numpy.array(content_index), numpy.array(content_num) #store in arrays to use less memory
 
 	def _make_base_input(self, previous_messages, response, char_conv):
 		base_input = numpy.zeros(MODEL_INPUT_SIZE - MAX_MSG_LENGTH) #base input is all inputs minus the response content
@@ -106,7 +109,7 @@ class TimeSeriesMessage:
 		return base_input
 
 	def __len__(self):
-		return len(self._time_series_output)
+		return len(self._base_index_output)
 	
 	def fill_time_series(self, time_series_input, time_series_output):
 		"fills 2 2D numpy arrays with time series input and output"
@@ -114,8 +117,9 @@ class TimeSeriesMessage:
 		for time_step in range(len(self)): #generating time series instead of saving it in the class because holding too many time series at once could use too much memory
 			time_series_input[time_step, :response_input_offset] = self._base_input
 			for index in range(time_step):
-				time_series_input[time_step, index + response_input_offset] = self._time_series_output[index]
-		time_series_output[:] = self._time_series_output #just copy the whole output since we dont need to change anything
+				time_series_input[time_step, index + response_input_offset] = self._base_num_output[index]
+			time_series_output[time_step].fill(0)
+			time_series_output[time_step, self._base_index_output[time_step]] = 1
 
 
 def preprocess_messages(messages, char_conv):
@@ -140,9 +144,10 @@ def preprocess_messages(messages, char_conv):
 
 
 class BatchGenerator(Sequence):
-	def __init__(self, time_series_messages, batch_size):
+	def __init__(self, time_series_messages, batch_size, output_size):
 		self._message_batches = self._group_messages_by_batch(time_series_messages, batch_size)
 		self._batch_size = batch_size
+		self._output_size = output_size
 
 	def _group_messages_by_batch(self, time_series_messages, batch_size):
 		"group messages by batch so that I can implement __getitem__ and __len__ more efficiently/easily"
@@ -154,13 +159,13 @@ class BatchGenerator(Sequence):
 		return all_batches
 	
 	def __getitem__(self, index):
-		#run .time_series() on every member of self._message_batches[index] and then somehow get it in a 3D array
 		batch = self._message_batches[index]
 		response_lengths = len(batch[0])  #len(batch[n]) is always the same size since we've grouped by response length
 		input_tensor = numpy.empty((len(batch), response_lengths, MODEL_INPUT_SIZE))
-		output_tensor = numpy.empty((len(batch), response_lengths, 1)) #only a single output
+		output_tensor = numpy.empty((len(batch), response_lengths, self._output_size)) 
 		for msg_num, msg in enumerate(batch): #fill tensors with time series data
 			msg.fill_time_series(input_tensor[msg_num], output_tensor[msg_num])
+		print(output_tensor)
 		return input_tensor, output_tensor
 
 	def __len__(self):
@@ -170,12 +175,19 @@ class BatchGenerator(Sequence):
 def create_model(num_inputs, neurons_per_hidden_layer, num_outputs):
 	"basically copied and pasted from https://machinelearningmastery.com/text-generation-lstm-recurrent-neural-networks-python-keras/"
 	model = Sequential()
-	model.add(LSTM(units = num_inputs, input_shape=(None, num_inputs), return_sequences=True))
+	model.add(LSTM(
+		neurons_per_hidden_layer, 
+		input_shape = (None, num_inputs), 
+		return_sequences = True
+	))
 	model.add(Dropout(0.2)) #try to not memorize the data
 	model.add(LSTM(neurons_per_hidden_layer))
 	model.add(Dropout(0.2)) 
 	#model.add(TimeDistributed( #output sequence instead of single char
-	Dense(num_outputs, activation='softmax') #output a probability for each char
+	model.add(Dense(
+		num_outputs,
+		activation = 'softmax' #output a probability for each char
+	))
 	#))
 	model.compile(loss='categorical_crossentropy', optimizer='adam') #crossentropy because softmax
 	return model
@@ -189,7 +201,8 @@ if __name__ == "__main__":
 	print("preprocessing messages...")
 	time_series_messages = preprocess_messages(messages, chars)
 	print("creating batch generator and model...")
-	batch_generator = BatchGenerator(time_series_messages, BATCH_SIZE)
-	model = create_model(MODEL_INPUT_SIZE, NEURONS_PER_HIDDEN_LAYER, len(chars.get_char))
+	batch_generator = BatchGenerator(time_series_messages, BATCH_SIZE, chars.num_chars)
+	model = create_model(MODEL_INPUT_SIZE, NEURONS_PER_HIDDEN_LAYER, chars.num_chars)
+	print(model.summary())
 	print("fitting model...")
-	model.fit_generator(batch_generator, shuffle = True) #use a generator because I have way too much data to stuff into an array
+	model.fit_generator(batch_generator, shuffle = True, epochs = 20) #use a generator because I have way too much data to stuff into an array
