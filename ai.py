@@ -5,10 +5,6 @@ TEST SOME OF YOUR FUNCS INDIVIDUALLY (do some sanity checks)
 SEE IF YOU CAN MAKE IT SAVE A VERSION OF THE MODEL THAT CAN BE USED WAY MORE EASILY
 	(like how I wanted to have an object that I can just paste into tony and not have to worry about any data science stuff)
 	might have to just end up making a module that uses the exported net file and then you can call the module
-
-OH LORDY I GUESS I CAN SAVE MY NICE GROUPBY CODE BY NOT MAKING THE INPUT THE SAME LENGTH EVERY TIME, WOULD MAKE TRAINING A LOT FASTER TOO
-	WILL THIS MAKE THE MODEL BETTER OR WORSE?
-	YOU'LL NEED TO STILL HAVE AT LEAST ONE NULL IN BETWEEN EACH MESSAGE
 '''
 
 import json
@@ -17,8 +13,7 @@ import numpy
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, LSTM, Flatten
 from keras.utils import Sequence
-from keras.callbacks import Callback
-import requests
+import callbacks
 
 #technique/some copy & pasting from https://machinelearningmastery.com/text-generation-lstm-recurrent-neural-networks-python-keras/
 
@@ -208,6 +203,7 @@ def create_model(num_inputs, neurons_per_hidden_layer, num_outputs):
 	return model
 
 
+
 if __name__ == "__main__":
 	print("getting messages...")
 	messages = get_messages()
@@ -220,17 +216,9 @@ if __name__ == "__main__":
 	model = create_model(input_size, NEURONS_PER_HIDDEN_LAYER, MAX_MSG_LENGTH)
 	print(model.summary())
 	print("fitting model...")
-	model.fit_generator(batch_generator, shuffle = True, epochs = 20) #use a generator because I have way too much data to stuff into an array
-
-
-'''
-content = {
-        'color': 0x00FF00,
-        'title': 'Report card for Tony Spark',
-        'description': "**Epoch:** {epoch}\n**Batch:** {batchnum}\n**Loss:** {loss}\n",
-        'footer': {
-             'text': '- The Spark Academy for lil robits -'
-         }
-    }
-res = requests.post(url, json = {'embeds': [content]})
-'''
+	model.fit_generator( #use a generator because I have way too much data to stuff into an array
+		batch_generator, 
+		shuffle = True, 
+		epochs = 100,
+		callbacks = [callbacks.save_model, callbacks.DiscordCallback(BatchGenerator, preprocess_messages, chars)]
+	) 
