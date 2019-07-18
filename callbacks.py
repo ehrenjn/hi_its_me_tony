@@ -38,39 +38,43 @@ def save_model(model, logs):
 
 
 
-GENERIC_AUTHOR = {
-    'id': '1',
-    'name': '1'
-}
+def make_sample_messages():
 
-GENERIC_CHANNEL = GENERIC_AUTHOR
+    generic_author = {
+        'id': '1',
+        'name': '1'
+    }
 
-SAMPLE_MESSAGES = [
+    generic_channel = generic_author
+
+    sample_messages = [
         {
             'content': "wake up tony",
-            'author': GENERIC_AUTHOR,
-            'channel': GENERIC_CHANNEL,
+            'author': generic_author,
+            'channel': generic_channel,
             'created_at': '1'
         }, 
         {
             'content': "todays your big day",
-            'author': GENERIC_AUTHOR,
-            'channel': GENERIC_CHANNEL,
+            'author': generic_author,
+            'channel': generic_channel,
             'created_at': '2'
         },
         {
             'content': "do you know why youre here?",
-            'author': GENERIC_AUTHOR,
-            'channel': GENERIC_CHANNEL,
+            'author': generic_author,
+            'channel': generic_channel,
             'created_at': '3'
         },
         {
             'content': '',
             'author': {'id': '2', 'name': 'tony'},
-            'channel': GENERIC_CHANNEL,
+            'channel': generic_channel,
             'created_at': '10'
         }
     ]
+
+    return sample_messages
 
 
 def predict(model, batch, char_conv):
@@ -86,7 +90,7 @@ class DiscordCallback(EveryNBatches):
 
     def __init__(self, BatchGenerator, preprocess_messages, char_conv):
         super().__init__(50, None)
-        messages = preprocess_messages(SAMPLE_MESSAGES, char_conv)
+        messages = preprocess_messages(make_sample_messages(), char_conv)
         generator = BatchGenerator(messages, 1, char_conv.num_chars + 2, 150)
         batch = generator[0][0]
         def new_predict(model):
