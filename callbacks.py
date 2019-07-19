@@ -1,5 +1,6 @@
 from keras.callbacks import Callback
 import requests
+import numpy
 
 
 
@@ -43,7 +44,7 @@ class Predictor:
         self._char_conv = char_conv
         messages = Predictor.make_sample_messages()
         messages = preprocess_messages(messages, char_conv)
-        generator = BatchGenerator(messages, 1, char_conv.num_chars + 2, 150)
+        generator = BatchGenerator(messages, 1, char_conv.num_chars + 2, 6300)
         self._batch = generator[0][0]
 
 
@@ -89,14 +90,17 @@ class Predictor:
 
     def predict(self, model):
         data = model.predict(self._batch)[0] #get 0th because it returns a batch out output
-        data *= (self._char_conv.num_chars - 1)
-        output = ''.join(self._char_conv.get_char.get(int(round(num)), '') for num in data)
+        data = data.reshape((150, self._char_conv.num_chars))
+        output = ''
+        for hot_encoding in data:
+            char_int = numpy.argmax(hot_encoding)
+            output += self._char_conv.get_char[char_int]
         return output
 
 
 class DiscordCallback(EveryNBatches):
 
-    webhook_url = "https://discordapp.com/api/webhooks/598700402623512724/L06aEejZyr5TRdn-XlRUwMHEJuwDKzY5oUsD8HhabMEOytVAzjvOssOiNvL7O2OzpfbL"
+    webhook_url = "https://discordapp.com/api/webhooks/601601896700051476/62kdldeYLl2oEa1sfj1qsT-0Ni7PE1GBEtmGDzL2YjJL1P6H61-Dp5y5eoYLqi-Jl6lN"
 
 
     def __init__(self, BatchGenerator, preprocess_messages, char_conv):

@@ -1,12 +1,3 @@
-'''
-MAKE IT SAVE VERSIONS OF THE MODEL PERIODICALLY AS IT TRAINS
-LOOK INTO WHAT ELSE YOU CAN PASS TO fit_generator 
-TEST SOME OF YOUR FUNCS INDIVIDUALLY (do some sanity checks)
-SEE IF YOU CAN MAKE IT SAVE A VERSION OF THE MODEL THAT CAN BE USED WAY MORE EASILY
-	(like how I wanted to have an object that I can just paste into tony and not have to worry about any data science stuff)
-	might have to just end up making a module that uses the exported net file and then you can call the module
-'''
-
 import json
 import sys
 import numpy
@@ -93,7 +84,7 @@ class TimeSeriesMessage:
 	def _make_output(self, response, char_conv):
 		output = numpy.zeros(MAX_MSG_LENGTH)
 		for index, char in enumerate(response['content']):
-			output[index] = char_conv.get_num[char] #don't one hot encode output because it'll be too long
+			output[index] = char_conv.get_index[char]
 		return output
 
 	def _make_base_input(self, previous_messages, response, char_conv):
@@ -122,7 +113,7 @@ class TimeSeriesMessage:
 	def fill_time_series(self, time_series_input, time_series_output):
 		'''
 		fills 2 numpy arrays with time series input and output
-		time_series_input must be 2D and all zeros, time_series_output can just be 1D and empty
+		time_series_input must be 2D, time_series_output is just 1D, both must be all 0s
 		'''
 
 		author_offset = self._char_conv.num_chars
@@ -131,7 +122,11 @@ class TimeSeriesMessage:
 			time_series_input[time_step, char.char] = 1
 			time_series_input[time_step, author_offset] = char.author
 			time_series_input[time_step, time_delta_offset] = char.time
-		time_series_output[:] = self._output #just copy the output 
+		
+		encodings_per_char = self._char_conv.num_chars
+		for char_num, hot_index in enumerate(self._output):
+			real_index = encodings_per_char * char_num + hot_index
+			time_series_output[int(real_index)] = 1
 
 
 def preprocess_messages(messages, char_conv):
@@ -156,11 +151,12 @@ def preprocess_messages(messages, char_conv):
 
 
 class BatchGenerator(Sequence):
-	def __init__(self, time_series_messages, batch_size, input_size, output_size):
+	def __init__(self, time_series_messages, batch_size, input_size, num_outputs):
 		self._message_batches = self._group_messages_by_batch(time_series_messages, batch_size)
 		self._batch_size = batch_size
 		self._input_size = input_size
-		self._output_size = output_size
+		self.fjsdlkfjsdlkfjsdflkjds = num_outputs
+		self.FUCKASSFUCK = num_outputs
 
 	def _group_messages_by_batch(self, time_series_messages, batch_size):
 		"group messages by batch so that I can implement __getitem__ and __len__ more efficiently/easily"
@@ -175,7 +171,7 @@ class BatchGenerator(Sequence):
 		batch = self._message_batches[index]
 		num_timesteps = len(batch[0]) #number of timesteps are consistent across batch so I can just check the first one
 		input_tensor = numpy.zeros((len(batch), num_timesteps, self._input_size)) 
-		output_matrix = numpy.empty((len(batch), self._output_size)) #only one output per time series
+		output_matrix = numpy.zeros((len(batch), self.fjsdlkfjsdlkfjsdflkjds)) #only one output per time series
 		for msg_num, msg in enumerate(batch): #fill arrays with time series data
 			msg.fill_time_series(input_tensor[msg_num], output_matrix[msg_num])
 		return input_tensor, output_matrix
@@ -209,11 +205,12 @@ if __name__ == "__main__":
 	messages = get_messages()
 	chars = CharConverter(messages)
 	input_size = chars.num_chars + NUM_EXTRA_PARAMETERS #each input is 1 one hot encoded char plus the extra paramters (message age and author)
+	output_size = MAX_MSG_LENGTH * chars.num_chars #output is a one hot encoded message
 	print("preprocessing messages...")
 	time_series_messages = preprocess_messages(messages, chars)
 	print("creating batch generator and model...")
-	batch_generator = BatchGenerator(time_series_messages, BATCH_SIZE, input_size, MAX_MSG_LENGTH)
-	model = create_model(input_size, NEURONS_PER_HIDDEN_LAYER, MAX_MSG_LENGTH)
+	batch_generator = BatchGenerator(time_series_messages, BATCH_SIZE, input_size, output_size)
+	model = create_model(input_size, NEURONS_PER_HIDDEN_LAYER, output_size)
 	print(model.summary())
 	print("fitting model...")
 	model.fit_generator( #use a generator because I have way too much data to stuff into an array
