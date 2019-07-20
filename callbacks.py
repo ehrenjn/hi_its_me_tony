@@ -37,6 +37,13 @@ def save_model(model, logs):
     model.save(name)
 
 
+def remove_trailing_nulls(char_list):
+    nulls_begin = 0
+    for index, char in enumerate(char_list):
+        if char != '':
+            nulls_begin = index + 1
+    return char_list[:nulls_begin]
+
 
 class Predictor:
 
@@ -90,10 +97,11 @@ class Predictor:
 
     def predict(self, model):
         data = model.predict(self._batch)[0] #get 0th because it returns a batch output
-        output = ''
+        output = []
         for hot_encoding in data:
             char_int = numpy.argmax(hot_encoding)
-            output += self._char_conv.get_char[char_int]
+            char = self._char_conv.get_char[char_int]
+            output.append(char)
         return output
 
 
@@ -114,16 +122,17 @@ class DiscordCallback(EveryNBatches):
             epoch = logs.get('epoch')
             batch = logs.get('batch')
             latest_output = self._predictor.predict(model)
-            if latest_output == '':
-                latest_output = '<tony wrote nothing. nothing at all. what a moron.>'
+            output_str = ''.join(latest_output)
+            output_lst = remove_trailing_nulls(latest_output)
             content = {
                 'color': 0x00FF00,
                 'title': 'Report card for Tony Spark',
                 'description': f"**Epoch:** {epoch}\n**Batch:** {batch}\n**Loss:** {loss}\n",
                 'fields': [{
-                    'name': "Some of Tony's latest work:",
-                    'value': f"[{latest_output}]"
-                }],
+                        'name': "Some of Tony's latest work:",
+                        'value': f"{output_str}\n{output_lst}"
+                    },
+                ],
                 'footer': {
                     'text': '- The Spark Academy for lil robits -'
                 }
