@@ -44,7 +44,7 @@ class Predictor:
         self._char_conv = char_conv
         messages = Predictor.make_sample_messages()
         messages = preprocess_messages(messages, char_conv)
-        generator = BatchGenerator(messages, 1, char_conv.num_chars + 2, 6300)
+        generator = BatchGenerator(messages, 1, char_conv.num_chars + 2, (150, char_conv.num_chars))
         self._batch = generator[0][0]
 
 
@@ -89,8 +89,7 @@ class Predictor:
 
 
     def predict(self, model):
-        data = model.predict(self._batch)[0] #get 0th because it returns a batch out output
-        data = data.reshape((150, self._char_conv.num_chars))
+        data = model.predict(self._batch)[0] #get 0th because it returns a batch output
         output = ''
         for hot_encoding in data:
             char_int = numpy.argmax(hot_encoding)
@@ -104,7 +103,7 @@ class DiscordCallback(EveryNBatches):
 
 
     def __init__(self, BatchGenerator, preprocess_messages, char_conv):
-        super().__init__(50, None)
+        super().__init__(5, None)
         self._predictor = Predictor(BatchGenerator, preprocess_messages, char_conv)
         self.set_func(self.create_logger_function())
     
@@ -114,13 +113,16 @@ class DiscordCallback(EveryNBatches):
             loss = logs.get('loss')
             epoch = logs.get('epoch')
             batch = logs.get('batch')
+            latest_output = self._predictor.predict(model)
+            if latest_output == '':
+                latest_output = '<tony wrote nothing. nothing at all. what a moron.>'
             content = {
                 'color': 0x00FF00,
                 'title': 'Report card for Tony Spark',
                 'description': f"**Epoch:** {epoch}\n**Batch:** {batch}\n**Loss:** {loss}\n",
                 'fields': [{
                     'name': "Some of Tony's latest work:",
-                    'value': self._predictor.predict(model)
+                    'value': latest_output
                 }],
                 'footer': {
                     'text': '- The Spark Academy for lil robits -'

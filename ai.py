@@ -2,9 +2,10 @@ import json
 import sys
 import numpy
 from keras.models import Sequential
-from keras.layers import Dense, Dropout, LSTM, Flatten
+from keras.layers import Dense, Dropout, LSTM, RepeatVector, TimeDistributed
 from keras.utils import Sequence
 import callbacks
+import pickle
 
 #technique/some copy & pasting from https://machinelearningmastery.com/text-generation-lstm-recurrent-neural-networks-python-keras/
 
@@ -18,9 +19,9 @@ NEURONS_PER_HIDDEN_LAYER = 256
 
 
 def get_messages():
-    with open('parsed_all_messages.json', 'r') as parsed_msg_file:
-        raw = parsed_msg_file.read()
-    return json.loads(raw)
+	with open('parsed_all_messages.json', 'r') as parsed_msg_file:
+		raw = parsed_msg_file.read()
+	return json.loads(raw)
 
 
 def group_by(items, key_func):
@@ -45,6 +46,10 @@ class CharConverter:
 		self.get_char = {index: char for char, index in self.get_index.items()}
 		divider = self.num_chars - 1 #to normalize index to be between 0 and 1 (-1 because if theres 10 chars then the max index is only 9 but we want index 9 to become num 1.0)
 		self.get_num = {char: index/divider for char, index in self.get_index.items()}
+	
+	def save(self, path):
+		with open(path, 'wb') as save_file:
+			pickle.dump(self, save_file)
 
 
 def normalize_time_delta(delta):
@@ -113,7 +118,7 @@ class TimeSeriesMessage:
 	def fill_time_series(self, time_series_input, time_series_output):
 		'''
 		fills 2 numpy arrays with time series input and output
-		time_series_input must be 2D, time_series_output is just 1D, both must be all 0s
+		time_series_input and time_series_output must be 2D and all 0s
 		'''
 
 		author_offset = self._char_conv.num_chars
@@ -123,10 +128,8 @@ class TimeSeriesMessage:
 			time_series_input[time_step, author_offset] = char.author
 			time_series_input[time_step, time_delta_offset] = char.time
 		
-		encodings_per_char = self._char_conv.num_chars
 		for char_num, hot_index in enumerate(self._output):
-			real_index = encodings_per_char * char_num + hot_index
-			time_series_output[int(real_index)] = 1
+			time_series_output[char_num, int(hot_index)] = 1
 
 
 def preprocess_messages(messages, char_conv):
@@ -151,12 +154,11 @@ def preprocess_messages(messages, char_conv):
 
 
 class BatchGenerator(Sequence):
-	def __init__(self, time_series_messages, batch_size, input_size, num_outputs):
+	def __init__(self, time_series_messages, batch_size, input_size, output_shape):
 		self._message_batches = self._group_messages_by_batch(time_series_messages, batch_size)
 		self._batch_size = batch_size
 		self._input_size = input_size
-		self.fjsdlkfjsdlkfjsdflkjds = num_outputs
-		self.FUCKASSFUCK = num_outputs
+		self._output_shape = output_shape
 
 	def _group_messages_by_batch(self, time_series_messages, batch_size):
 		"group messages by batch so that I can implement __getitem__ and __len__ more efficiently/easily"
@@ -171,31 +173,43 @@ class BatchGenerator(Sequence):
 		batch = self._message_batches[index]
 		num_timesteps = len(batch[0]) #number of timesteps are consistent across batch so I can just check the first one
 		input_tensor = numpy.zeros((len(batch), num_timesteps, self._input_size)) 
-		output_matrix = numpy.zeros((len(batch), self.fjsdlkfjsdlkfjsdflkjds)) #only one output per time series
+		output_tensor = numpy.zeros((len(batch), *self._output_shape))
 		for msg_num, msg in enumerate(batch): #fill arrays with time series data
-			msg.fill_time_series(input_tensor[msg_num], output_matrix[msg_num])
-		return input_tensor, output_matrix
+			msg.fill_time_series(input_tensor[msg_num], output_tensor[msg_num])
+		return input_tensor, output_tensor
 
 	def __len__(self):
 		return len(self._message_batches)
 
 
-def create_model(num_inputs, neurons_per_hidden_layer, num_outputs):
-	"basically copied and pasted from https://machinelearningmastery.com/text-generation-lstm-recurrent-neural-networks-python-keras/"
+def create_model(num_inputs, neurons_per_hidden_layer, output_shape):
+	'''
+	encoder/decoder LSTM model based on combination of https://machinelearningmastery.com/text-generation-lstm-recurrent-neural-networks-python-keras/ 
+	and https://machinelearningmastery.com/encoder-decoder-long-short-term-memory-networks/
+	'''
+	num_output_timesteps, outputs_per_char = output_shape
 	model = Sequential()
 	model.add(LSTM(
 		neurons_per_hidden_layer, 
 		input_shape = (None, num_inputs), 
-		return_sequences = True
+		return_sequences = True #return output for every timestep since we're inputting into another LSTM
 	))
 	model.add(Dropout(0.2)) #try to not memorize the data
-	model.add(LSTM(neurons_per_hidden_layer))
+	model.add(LSTM(neurons_per_hidden_layer)) #outputs encoded state vector
+	model.add(RepeatVector(num_output_timesteps)) #duplicate encoded state (once for each letter of output)
 	model.add(Dropout(0.2)) 
-	model.add(Dense(
-		num_outputs,
-		activation = 'sigmoid' #changed from softmax because my output is no longer anywhere near categorical 
+	model.add(LSTM( #the decoder
+		neurons_per_hidden_layer,
+		return_sequences = True #this time we're returning every timestep because each timestep of the output is going to be another letter
 	))
-	model.compile(loss='mean_absolute_error', optimizer='adam') #absolute instead of squared because I probably have a lot of outliers
+	model.add(Dropout(0.2))
+	model.add(TimeDistributed( #LSTM outputs multiple timesteps and we want one Dense layer per timestep
+		Dense(
+			outputs_per_char,
+			activation = 'softmax' #use softmax because one hot encoding each letter
+		)
+	))
+	model.compile(loss='categorical_crossentropy', optimizer='adam') #crossentropy to match softmax
 	return model
 
 
@@ -204,18 +218,19 @@ if __name__ == "__main__":
 	print("getting messages...")
 	messages = get_messages()
 	chars = CharConverter(messages)
+	chars.save('char_converter.pickle')
 	input_size = chars.num_chars + NUM_EXTRA_PARAMETERS #each input is 1 one hot encoded char plus the extra paramters (message age and author)
-	output_size = MAX_MSG_LENGTH * chars.num_chars #output is a one hot encoded message
+	output_shape = (MAX_MSG_LENGTH, chars.num_chars) #output is a one hot encoded message
 	print("preprocessing messages...")
 	time_series_messages = preprocess_messages(messages, chars)
 	print("creating batch generator and model...")
-	batch_generator = BatchGenerator(time_series_messages, BATCH_SIZE, input_size, output_size)
-	model = create_model(input_size, NEURONS_PER_HIDDEN_LAYER, output_size)
+	batch_generator = BatchGenerator(time_series_messages, BATCH_SIZE, input_size, output_shape)
+	model = create_model(input_size, NEURONS_PER_HIDDEN_LAYER, output_shape)
 	print(model.summary())
 	print("fitting model...")
 	model.fit_generator( #use a generator because I have way too much data to stuff into an array
 		batch_generator, 
 		shuffle = True, 
 		epochs = 100,
-		callbacks = [callbacks.save_model, callbacks.DiscordCallback(BatchGenerator, preprocess_messages, chars)]
+		callbacks = [callbacks.DiscordCallback(BatchGenerator, preprocess_messages, chars)]#, callbacks.save_model]
 	) 

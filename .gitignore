@@ -1,4 +1,8 @@
 *.txt
 *.json
 *.h5
+*.pickle
+
 __pycache__/**
+
+predict.py
