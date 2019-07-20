@@ -232,5 +232,5 @@ if __name__ == "__main__":
 		batch_generator, 
 		shuffle = True, 
 		epochs = 100,
-		callbacks = [callbacks.DiscordCallback(BatchGenerator, preprocess_messages, chars)]#, callbacks.save_model]
+		callbacks = [callbacks.DiscordCallback(BatchGenerator, preprocess_messages, chars), callbacks.save_model]
 	) 
