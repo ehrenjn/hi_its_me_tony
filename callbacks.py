@@ -103,7 +103,7 @@ class DiscordCallback(EveryNBatches):
 
 
     def __init__(self, BatchGenerator, preprocess_messages, char_conv):
-        super().__init__(5, None)
+        super().__init__(50, None)
         self._predictor = Predictor(BatchGenerator, preprocess_messages, char_conv)
         self.set_func(self.create_logger_function())
     
