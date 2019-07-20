@@ -122,7 +122,7 @@ class DiscordCallback(EveryNBatches):
                 'description': f"**Epoch:** {epoch}\n**Batch:** {batch}\n**Loss:** {loss}\n",
                 'fields': [{
                     'name': "Some of Tony's latest work:",
-                    'value': latest_output
+                    'value': f"[{latest_output}]"
                 }],
                 'footer': {
                     'text': '- The Spark Academy for lil robits -'
