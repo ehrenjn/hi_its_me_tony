@@ -107,16 +107,18 @@ class Predictor:
 
 class DiscordCallback(EveryNBatches):
 
-    webhook_url = "https://discordapp.com/api/webhooks/601601896700051476/62kdldeYLl2oEa1sfj1qsT-0Ni7PE1GBEtmGDzL2YjJL1P6H61-Dp5y5eoYLqi-Jl6lN"
+    webhook_file = "webhook_url.txt"
 
 
     def __init__(self, BatchGenerator, preprocess_messages, char_conv):
         super().__init__(50, None)
         self._predictor = Predictor(BatchGenerator, preprocess_messages, char_conv)
-        self.set_func(self.create_logger_function())
+        with open(DiscordCallback.webhook_file) as hook_file:
+            webhook_url = hook_file.read()
+        self.set_func(self.create_logger_function(webhook_url))
     
 
-    def create_logger_function(self):
+    def create_logger_function(self, webhook_url):
         def log_to_discord(model, logs): #wrapped in extra func because I need this to not be a method
             loss = logs.get('loss')
             epoch = logs.get('epoch')
@@ -137,5 +139,5 @@ class DiscordCallback(EveryNBatches):
                     'text': '- The Spark Academy for lil robits -'
                 }
             }
-            requests.post(DiscordCallback.webhook_url, json = {'embeds': [content]})
+            requests.post(webhook_url, json = {'embeds': [content]})
         return log_to_discord
