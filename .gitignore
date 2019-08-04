@@ -3,6 +3,6 @@
 *.h5
 *.pickle
 
-__pycache__/**
+**/__pycache__/**
 
 predict.py
