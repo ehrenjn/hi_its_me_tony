@@ -105,9 +105,9 @@ def make_training_data(all_msgs, hot_encoder):
 
 class Word2VecCallback(callbacks.Callback):
 
-    save_period = 1000 #save every n batches
-    validation_period = 100 #check how we're doing every n batchs
-    validation_words = ['3', 'fuck']
+    save_period = 2000 #save every n batches
+    validation_period = 300 #check how we're doing every n batchs
+    validation_words = ['1', '3', '5', 'five', 'idiot', 'moron']
     num_closest_validators = 10 #find the n closest words to validation_words when validating
 
     def __init__(self, model, hot_encoder):
