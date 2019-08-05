@@ -18,3 +18,5 @@ MSGS_FILE = '../parsed_all_messages.json'
 WORD2VEC_VEC_SIZE = 300
 
 WINDOW_SIZE = 3
+
+BATCH_SIZE = 1
