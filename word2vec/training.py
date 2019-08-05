@@ -6,7 +6,10 @@
 
 from keras import layers, models, callbacks
 from keras.preprocessing import sequence
-from consts import NUM_INDEXED_WORDS, WORD2VEC_VEC_SIZE, MSGS_FILE, HOT_ENCODINGS_FILE, WINDOW_SIZE, WORD2VEC_LUT_FILE
+from consts import (
+    NUM_INDEXED_WORDS, WORD2VEC_VEC_SIZE, MSGS_FILE, HOT_ENCODINGS_FILE, 
+    WINDOW_SIZE, WORD2VEC_LUT_FILE, BATCH_SIZE
+)
 from onehot import Encoder as OnehotEncoder
 import json
 from utils import group_by
@@ -106,7 +109,7 @@ def make_training_data(all_msgs, hot_encoder):
 class Word2VecCallback(callbacks.Callback):
 
     save_period = 2000 #save every n batches
-    validation_period = 300 #check how we're doing every n batchs
+    validation_period = 500 #check how we're doing every n batchs
     validation_words = ['1', '3', '5', 'five', 'idiot', 'moron']
     num_closest_validators = 10 #find the n closest words to validation_words when validating
 
@@ -130,7 +133,7 @@ class Word2VecCallback(callbacks.Callback):
             word_to_vec[word] = list(serializable_vect)
         word_to_vec = json.dumps(word_to_vec)
         word_to_vec = zlib.compress(word_to_vec.encode(), level = 9) #compress cause this is gonna be a big lad
-        file_name = f"{batch_num} {WORD2VEC_LUT_FILE}"
+        file_name = WORD2VEC_LUT_FILE.replace('.zlib', f" {batch_num}.zlib")
         with open(file_name, 'wb') as lut:
             lut.write(word_to_vec)
         print("model saved")
@@ -169,7 +172,7 @@ if __name__ == "__main__":
     model.model.fit(
         training_input,
         training_output,
-        batch_size = 1,
+        batch_size = BATCH_SIZE,
         epochs = 20,
         callbacks = [callback]
     )
