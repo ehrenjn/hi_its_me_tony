@@ -2,6 +2,7 @@
 *.json
 *.h5
 *.pickle
+*.zlib
 
 **/__pycache__/**
 
