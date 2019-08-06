@@ -174,6 +174,6 @@ if __name__ == "__main__":
         training_input,
         training_output,
         batch_size = BATCH_SIZE,
-        epochs = 20,
+        epochs = 100,
         callbacks = [callback]
     )
