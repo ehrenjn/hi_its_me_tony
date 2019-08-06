@@ -119,11 +119,12 @@ class Word2VecCallback(callbacks.Callback):
 
     def on_batch_end(self, batch, logs = {}):
         if batch % Word2VecCallback.save_period == 0:
-            self._save_model_lut(batch)
+            loss = logs.get('loss', 'unknown')
+            self._save_model_lut(batch, loss)
         if batch % Word2VecCallback.validation_period == 0:
             self._model_status_check()
 
-    def _save_model_lut(self, batch_num):
+    def _save_model_lut(self, batch_num, loss):
         print("saving model...")
         batch = self._make_hot_epoch()
         all_vects = self._model.vectorizer.predict_on_batch(batch)
@@ -133,7 +134,7 @@ class Word2VecCallback(callbacks.Callback):
             word_to_vec[word] = list(serializable_vect)
         word_to_vec = json.dumps(word_to_vec)
         word_to_vec = zlib.compress(word_to_vec.encode(), level = 9) #compress cause this is gonna be a big lad
-        file_name = WORD2VEC_LUT_FILE.replace('.zlib', f" {batch_num}.zlib")
+        file_name = WORD2VEC_LUT_FILE.replace('.zlib', f" {batch_num} loss={loss}.zlib")
         with open(file_name, 'wb') as lut:
             lut.write(word_to_vec)
         print("model saved")
