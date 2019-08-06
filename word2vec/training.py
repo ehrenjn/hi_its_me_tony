@@ -149,7 +149,7 @@ class Word2VecCallback(callbacks.Callback):
                 (self._hot_encoder.get_word(index), similarity) 
                 for index, similarity in enumerate(similarities)
             ]
-            similarities.sort(key = lambda sim: sim[1])
+            similarities.sort(key = lambda sim: sim[1], reverse = True) #reverse because cos(0) = 1 so we're looking for the largest similarity
             closest = ', '.join(sim[0] for sim in similarities[:10])
             print(f"closest words to {word}: {closest}")
         print("validation check finished")
