@@ -94,7 +94,7 @@ def make_training_data(all_msgs, hot_encoder):
     ]
 
     sampling_table = sequence.make_sampling_table(NUM_INDEXED_WORDS + 1) #make a table that estimates the frequency of each word occuring according to zipf's law
-    skip_grams = sequence.skipgrams(
+    skip_grams = sequence.skipgrams( #using the keras skipgrams function because having to figure out the word frequencies and how many samples to do and stuff sounds really hard
         all_words, NUM_INDEXED_WORDS + 1, window_size = WINDOW_SIZE, sampling_table = sampling_table
     )
     input_pairs, output = skip_grams
