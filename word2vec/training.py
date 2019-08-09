@@ -135,6 +135,7 @@ class Word2VecCallback(callbacks.Callback):
         word_to_vec = json.dumps(word_to_vec)
         word_to_vec = zlib.compress(word_to_vec.encode(), level = 9) #compress cause this is gonna be a big lad
         file_name = WORD2VEC_LUT_FILE.replace('.zlib', f" {batch_num} loss={loss}.zlib")
+        print(f"saving as: {file_name}... ")
         with open(file_name, 'wb') as lut:
             lut.write(word_to_vec)
         print("model saved")
