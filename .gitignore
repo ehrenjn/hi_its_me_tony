@@ -1,9 +1,9 @@
 *.txt
 *.json
 *.h5
-*.pickle
 *.zlib
 
 **/__pycache__/**
+/decent\ models
 
 predict.py
