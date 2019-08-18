@@ -1,7 +1,7 @@
 from keras.models import load_model
 from word2vec.encoder import Vectorizer
 from consts import FINAL_MODEL_PATH
-from msg_model import TimeSeriesMessage
+from msg_model import TimeSeriesInput
 
 
 
@@ -12,7 +12,7 @@ class Brain:
         self._vectorizer = Vectorizer()
 
     def predict_message(self, messages):
-        time_series = TimeSeriesMessage(self._vectorizer, messages)
+        time_series = TimeSeriesInput(self._vectorizer, messages)
         input = time_series.make_input()
         output = self._model.predict(input)
         output = map(self._vectorizer.to_word, output)
