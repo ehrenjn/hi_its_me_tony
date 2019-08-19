@@ -14,8 +14,9 @@ class Brain:
     def predict_message(self, messages):
         time_series = TimeSeriesInput(self._vectorizer, messages)
         input = time_series.make_input()
-        output = self._model.predict(input)
-        output = map(self._vectorizer.to_word, output)
+        input = input.reshape((1, *input.shape)) #have to reshape since predict_on_batch expects input to consist of batches
+        output = self._model.predict_on_batch(input)
+        output = map(self._vectorizer.to_word, output[0]) #output[0] because predict_on_batch also outputs a batch
         return ' '.join(output)
 
 

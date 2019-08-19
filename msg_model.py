@@ -48,36 +48,35 @@ class TimeSeriesInput:
 
         if response_time is None:
             response_time = time.time() #response time is right now by default
-        num_timesteps = sum(len(mess.content) + 1 for mess in self._input_messages) #+1 because we mark the end of messages
         input_size = WORD2VEC_VEC_SIZE + NUM_EXTRA_PARAMETERS #size of each timestep vector
         author_offset = WORD2VEC_VEC_SIZE #index of each time step that should contain information about author
         time_delta_offset = author_offset + 1 #index of each timestep that contains information about time the message was posted
-        input_matrix = numpy.zeros((num_timesteps, input_size))
+        input_matrix = numpy.zeros((len(self), input_size))
 
         time_step = 0
         for msg in self._input_messages:
             normalized_time_delta = normalize_time_delta(response_time - msg.time_posted)
             is_author = int(msg.author_is_tony)
 
-            for word in msg.content + [NULL_WORD]: #tack on end of message word
+            for word in msg.words + [NULL_WORD]: #tack on end of message word
                 time_step_array = input_matrix[time_step]
                 word_vect = self._vectorizer.to_vect(word)
                 time_step_array[:WORD2VEC_VEC_SIZE] = word_vect
                 time_step_array[author_offset] = is_author
                 time_step_array[time_delta_offset] = normalized_time_delta
                 time_step += 1
-            time_step += 1
 
         return input_matrix
 
 
     def _remove_non_vectorizable_words(self, vectorizer, *messages):
+        is_good_word = lambda word: vectorizer.to_vect(word) is not None
         for msg in messages:
-            msg.words = list(filter(vectorizer.to_vect, msg.words))
+            msg.words = list(filter(is_good_word, msg.words))
 
     
     def __len__(self):
         return sum(
-            len(msg.words) + NUM_EXTRA_PARAMETERS
+            len(msg.words) + 1 #+1 because we mark the end of messages with a null word
             for msg in self._input_messages
         )

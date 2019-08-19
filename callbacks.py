@@ -66,6 +66,7 @@ class DiscordCallback(EveryNBatches):
         batch = logs.get('batch')
         latest_output = self._predictor.predict_message(self._sample_messages)
         output_list = DiscordCallback._remove_trailing_nulls(latest_output.split(' '))
+        output_str = ' '.join(output_list)
 
         content = {
             'color': 0x00FF00,
@@ -73,7 +74,7 @@ class DiscordCallback(EveryNBatches):
             'description': f"**Epoch:** {epoch}\n**Batch:** {batch}\n**Loss:** {loss}\n",
             'fields': [{
                     'name': "Some of Tony's latest work:",
-                    'value': f"{latest_output}\n{output_list}"
+                    'value': f"{output_str}\n{output_list}"
                 },
             ],
             'footer': {

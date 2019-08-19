@@ -131,21 +131,30 @@ def create_model(num_inputs, neurons_per_hidden_layer, output_shape):
     model.add(LSTM(
         neurons_per_hidden_layer, 
         input_shape = (None, num_inputs), 
-        return_sequences = True #return output for every timestep since we're inputting into another LSTM
+        return_sequences = True, #return output for every timestep since we're inputting into another LSTM
+        kernel_initializer="glorot_normal", 
+        recurrent_initializer="glorot_normal"
     ))
     model.add(Dropout(0.2)) #try to not memorize the data
-    model.add(LSTM(neurons_per_hidden_layer)) #outputs encoded state vector
+    model.add(LSTM( #outputs encoded state vector
+        neurons_per_hidden_layer,
+        kernel_initializer="glorot_normal", 
+        recurrent_initializer="glorot_normal"
+    ))
     model.add(RepeatVector(num_output_timesteps)) #duplicate encoded state (once for each word of output)
     model.add(Dropout(0.2)) 
     model.add(LSTM( #the decoder
         neurons_per_hidden_layer,
-        return_sequences = True #this time we're returning every timestep because each timestep of the output is going to be another word
+        return_sequences = True, #this time we're returning every timestep because each timestep of the output is going to be another word
+        kernel_initializer="glorot_normal", 
+        recurrent_initializer="glorot_normal"
     ))
     model.add(Dropout(0.2))
     model.add(TimeDistributed( #LSTM outputs multiple timesteps and we want one Dense layer per timestep
         Dense(
             outputs_per_char,
-            activation = 'tanh' #tanh because elements of word embeddings can be negative or positive. WORD EMBEDDINGS ACTUALLY CAN SPAN BEYOND -1 AND 1 BUT BECAUSE WE ONLY LOOK AT THE DIRECTION OF VECTORS TO FIND A MATCH I CAN (hopefully) GET AWAY WITH MAKING THE MAGNITUDE OF THESE OUTPUT VECTORS SMALLER
+            activation = 'tanh', #tanh because elements of word embeddings can be negative or positive. WORD EMBEDDINGS ACTUALLY CAN SPAN BEYOND -1 AND 1 BUT BECAUSE WE ONLY LOOK AT THE DIRECTION OF VECTORS TO FIND A MATCH I CAN (hopefully) GET AWAY WITH MAKING THE MAGNITUDE OF THESE OUTPUT VECTORS SMALLER
+            kernel_initializer="glorot_normal"
         )
     ))
     model.compile(loss = 'cosine_proximity', optimizer = 'adam') #cosine_proximity because thats how we compare word embeddings
@@ -163,7 +172,6 @@ if __name__ == "__main__":
     batch_generator = BatchGenerator(vectorizer, messages, BATCH_SIZE, input_size, output_shape)
     model = create_model(input_size, NEURONS_PER_HIDDEN_LAYER, output_shape)
     print(model.summary())
-    print([layer.input_shape for layer in model.layers])
     print("fitting model...")
     model.fit_generator( #use a generator because I have way too much data to stuff into an array
         batch_generator, 
