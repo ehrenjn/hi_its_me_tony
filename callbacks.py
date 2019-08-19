@@ -47,7 +47,7 @@ class DiscordCallback(EveryNBatches):
 
 
     def __init__(self):
-        super().__init__(50, None)
+        super().__init__(100, None)
         with open(DiscordCallback.webhook_file) as hook_file:
             webhook_url = hook_file.read()
         self._webhook_url = webhook_url
