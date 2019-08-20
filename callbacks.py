@@ -82,7 +82,10 @@ class DiscordCallback(EveryNBatches):
             }
         }
 
-        requests.post(self._webhook_url, json = {'embeds': [content]})
+        try:
+            requests.post(self._webhook_url, json = {'embeds': [content]})
+        except Exception as err:
+            print(f"ERROR in Discord logging callback: {err}")
     
 
     @staticmethod
